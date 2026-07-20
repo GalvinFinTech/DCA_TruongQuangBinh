@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DCA Wealth Intelligence v3.0 - Premium Edition</title>
+  
+  <!-- React & Recharts CDN Libraries -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-is@18/umd/react-is.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Google Fonts - Plus Jakarta Sans & JetBrains Mono -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  
+  <!-- Tailwind CSS for high-fidelity styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              DEFAULT: '#c8ff00', // Lime Electro
+              glow: 'rgba(200, 255, 0, 0.15)',
+              dark: '#08080a',
+              card: '#0f1013',
+              border: '#1d1f26',
+              borderMuted: '#14151a',
+              textMuted: '#626775'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    /* Custom High-End Scrollbars & Range Input styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #08080a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1d1f26;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #c8ff00;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+    }
+    input[type=range]:focus {
+      outline: none;
+    }
+    /* Subtle glow animation for luxury elements */
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 15px rgba(200, 255, 0, 0.15); }
+      50% { box-shadow: 0 0 30px rgba(200, 255, 0, 0.35); }
+    }
+    .premium-glow {
+      animation: pulseGlow 4s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-[#050507] text-[#f4f4f7] antialiased min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect } = React;
+    const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } = Recharts;
+
+    // Định dạng tiền tệ VND chuyên nghiệp chuẩn quốc tế
+    const fmt = (n) =>
+      new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(n);
+
+    // Định dạng tiền tệ rút gọn thông minh dễ đọc trên đồ thị
+    const fmtShort = (n) => {
+      if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)} tỷ`;
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)} tr`;
+      if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+      return n.toString();
+    };
+
+    // Định dạng chuỗi số thô thành dạng hiển thị phân tách hàng nghìn cho Input
+    const formatRawNumber = (numStr) => {
+      const clean = numStr.replace(/\D/g, "");
+      if (!clean) return "";
+      return new Intl.NumberFormat("vi-VN").format(parseInt(clean, 10));
+    };
+
+    // Phân tích ngược số từ chuỗi định dạng
+    const parseFormattedNumber = (formattedStr) => {
+      return parseInt(formattedStr.replace(/\./g, "").replace(/,/g, ""), 10) || 0;
+    };
+
+    // Giải bài toán lãi kép ngược (DCA Reverse)
+    const calcRequiredMonthly = (targetValue, annualRate, months) => {
+      const r = annualRate / 100 / 12;
+      if (r === 0) return targetValue / months;
+      return (targetValue * r) / (((Math.pow(1 + r, months) - 1)) * (1 + r));
+    };
+
+    const CustomTooltip = ({ active, payload, label }) => {
+      if (active && payload && payload.length) {
+        const invested = payload[0]?.value || 0;
+        const gain = payload[1]?.value || 0;
+        const total = invested + gain;
+        return (
+          <div className="bg-[#0b0c0f]/95 backdrop-blur-xl border border-brand/20 rounded-xl p-4 shadow-[0_10px_30px_rgba(0,0,0,0.5)] font-mono text-xs max-w-[260px]">
+            <div className="text-zinc-500 mb-2 font-medium border-b border-zinc-800/60 pb-1">Tháng {label}</div>
+            <div className="text-brand mb-1.5 font-bold flex justify-between gap-4">
+              <span>Tổng tài sản:</span>
+              <span>{fmt(total)}</span>
+            </div>
+            <div className="text-[#4ade80] mb-1 flex justify-between gap-4">
+              <span>↑ Lãi kép tích lũy:</span>
+              <span>{fmt(gain)}</span>
+            </div>
+            <div className="text-zinc-400 flex justify-between gap-4">
+              <span>Vốn nộp thực tế:</span>
+              <span>{fmt(invested)}</span>
+            </div>
+          </div>
+        );
+      }
+      return null;
+    };
+
+    // Hộp nhập liệu tích hợp Slider và Ô gõ trực tiếp vô cùng cao cấp
+    const PremiumSliderInput = ({ label, value, onChange, min, max, step, valueSuffix = "", isCurrency = false }) => {
+      const [isEditing, setIsEditing] = useState(false);
+      const [inputValue, setInputValue] = useState("");
+
+      useEffect(() => {
+        if (!isEditing) {
+          setInputValue(isCurrency ? formatRawNumber(value.toString()) : value.toString());
+        }
+      }, [value, isEditing, isCurrency]);
+
+      const pct = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+
+      const handleInputChange = (e) => {
+        const rawText = e.target.value;
+        if (isCurrency) {
+          const cleanText = rawText.replace(/\D/g, "");
+          setInputValue(formatRawNumber(cleanText));
+        } else {
+          setInputValue(rawText.replace(/[^0-9.]/g, ""));
+        }
+      };
+
+      const handleBlur = () => {
+        setIsEditing(false);
+        let numericValue = isCurrency ? parseFormattedNumber(inputValue) : parseFloat(inputValue);
+        if (isNaN(numericValue)) numericValue = min;
+        
+        // Giới hạn giá trị trong khoảng cho phép
+        const boundedValue = Math.min(max, Math.max(min, numericValue));
+        onChange(boundedValue);
+      };
+
+      return (
+        <div className="mb-6 group">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-zinc-500 text-[10px] font-bold tracking-widest uppercase font-mono group-hover:text-zinc-400 transition-colors">
+              {label}
+            </span>
+            <div className="flex items-center gap-1.5 bg-[#121318] border border-zinc-800/80 rounded-lg px-2.5 py-1 focus-within:border-brand/40 focus-within:ring-1 focus-within:ring-brand/10 transition-all">
+              <input 
+                type="text" 
+                value={inputValue}
+                onChange={handleInputChange}
+                onFocus={() => setIsEditing(true)}
+                onBlur={handleBlur}
+                className="bg-transparent text-brand text-right font-bold font-mono text-base focus:outline-none w-32"
+              />
+              <span className="text-zinc-500 font-semibold font-mono text-xs">{valueSuffix}</span>
+            </div>
+          </div>
+          
+          <div className="relative h-1.5 bg-[#14151a] rounded-full flex items-center">
+            <div 
+              style={{ width: `${pct}%` }} 
+              className="absolute left-0 h-full bg-gradient-to-r from-brand/40 to-brand rounded-full"
+            />
+            <input 
+              type="range" 
+              min={min} 
+              max={max} 
+              step={step} 
+              value={value}
+              onChange={e => onChange(Number(e.target.value))}
+              className="absolute w-full h-5 opacity-0 cursor-pointer z-10"
+            />
+            <div 
+              style={{ left: `calc(${pct}% - 7px)` }} 
+              className="absolute w-3.5 h-3.5 rounded-full bg-brand shadow-[0_0_12px_rgba(200,255,0,0.8)] pointer-events-none transition-transform group-hover:scale-125"
+            />
+          </div>
+          <div className="flex justify-between mt-2.5">
+            <span className="text-zinc-600 text-[10px] font-mono">{isCurrency ? fmtShort(min) : min}</span>
+            <span className="text-zinc-600 text-[10px] font-mono">{isCurrency ? fmtShort(max) : max}</span>
+          </div>
+        </div>
+      );
+    };
+
+    function DCACalculator() {
+      const [mode, setMode] = useState("forward");
+      const [tabView, setTabView] = useState("chart"); // "chart" | "table"
+      const [toast, setToast] = useState({ show: false, message: "" });
+
+      // Forward Mode (Gốc -> Đích)
+      const [monthly, setMonthly] = useState(2000000);
+      const [rate, setRate] = useState(10);
+      const [months, setMonths] = useState(120);
+
+      // Reverse Mode (Mục tiêu -> Định kỳ cần tích lũy)
+      const [targetValue, setTargetValue] = useState(1000000000);
+      const [revRate, setRevRate] = useState(10);
+      const [revMonths, setRevMonths] = useState(120);
+
+      const showToast = (message) => {
+        setToast({ show: true, message });
+        setTimeout(() => setToast({ show: false, message: "" }), 3000);
+      };
+
+      // Công thức tính toán lũy tiến thuận (Forward)
+      const forward = useMemo(() => {
+        const monthlyRate = rate / 100 / 12;
+        const points = [];
+        const yearlyPoints = [];
+        let balance = 0;
+        
+        for (let m = 1; m <= months; m++) {
+          balance = (balance + monthly) * (1 + monthlyRate);
+          const invested = monthly * m;
+          const gain = balance - invested;
+          
+          // Điểm vẽ đồ thị (tối ưu hóa hiệu năng vẽ)
+          if (m % Math.max(1, Math.floor(months / 60)) === 0 || m === months) {
+            points.push({ month: m, invested: Math.round(invested), gain: Math.round(gain) });
+          }
+
+          // Điểm bảng báo cáo theo năm
+          if (m % 12 === 0 || m === months) {
+            yearlyPoints.push({
+              year: Math.ceil(m / 12),
+              month: m,
+              invested: Math.round(invested),
+              gain: Math.round(gain),
+              total: Math.round(balance),
+              percentage: invested > 0 ? ((balance - invested) / invested) * 100 : 0
+            });
+          }
+        }
+        const finalInvested = monthly * months;
+        const finalValue = balance;
+        return { 
+          data: points, 
+          yearlyData: yearlyPoints,
+          totalInvested: finalInvested, 
+          totalValue: finalValue, 
+          totalGain: finalValue - finalInvested, 
+          gainPct: finalInvested > 0 ? ((finalValue - finalInvested) / finalInvested) * 100 : 0 
+        };
+      }, [monthly, rate, months]);
+
+      // Công thức tính toán ngược (Reverse)
+      const reverse = useMemo(() => {
+        const reqMonthly = calcRequiredMonthly(targetValue, revRate, revMonths);
+        const monthlyRate = revRate / 100 / 12;
+        const points = [];
+        const yearlyPoints = [];
+        let balance = 0;
+        
+        for (let m = 1; m <= revMonths; m++) {
+          balance = (balance + reqMonthly) * (1 + monthlyRate);
+          const invested = reqMonthly * m;
+          const gain = balance - invested;
+          
+          // Điểm vẽ đồ thị
+          if (m % Math.max(1, Math.floor(revMonths / 60)) === 0 || m === revMonths) {
+            points.push({ month: m, invested: Math.round(invested), gain: Math.round(gain) });
+          }
+
+          // Điểm bảng báo cáo theo năm
+          if (m % 12 === 0 || m === revMonths) {
+            yearlyPoints.push({
+              year: Math.ceil(m / 12),
+              month: m,
+              invested: Math.round(invested),
+              gain: Math.round(gain),
+              total: Math.round(balance),
+              percentage: invested > 0 ? ((balance - invested) / invested) * 100 : 0
+            });
+          }
+        }
+        const totalInvested = reqMonthly * revMonths;
+        return { 
+          reqMonthly, 
+          totalInvested, 
+          totalGain: targetValue - totalInvested, 
+          gainPct: totalInvested > 0 ? ((targetValue - totalInvested) / totalInvested) * 100 : 0, 
+          data: points,
+          yearlyData: yearlyPoints
+        };
+      }, [targetValue, revRate, revMonths]);
+
+      const durationFmt = (m) => {
+        const y = Math.floor(m / 12);
+        const rm = m % 12;
+        return y > 0 ? `${y} năm${rm > 0 ? ` ${rm} th` : ""}` : `${m} tháng`;
+      };
+
+      // Trích xuất báo cáo sang clipboard
+      const handleCopyReport = () => {
+        let text = "";
+        if (mode === "forward") {
+          text = `[BÁO CÁO DCA v3.0 ULTIMATE]\n` +
+                 `• Hình thức: Dự tính giá trị tương lai\n` +
+                 `• Vốn góp đều: ${fmt(monthly)}/tháng trong ${durationFmt(months)}\n` +
+                 `• Hiệu suất giả định: ${rate}%/năm\n` +
+                 `• Tổng vốn đã nộp: ${fmt(forward.totalInvested)}\n` +
+                 `• Tiền lãi kép: ${fmt(forward.totalGain)} (+${forward.gainPct.toFixed(1)}%)\n` +
+                 `• TỔNG TÀI SẢN CUỐI KỲ: ${fmt(forward.totalValue)}`;
+        } else {
+          text = `[BÁO CÁO DCA v3.0 ULTIMATE]\n` +
+                 `• Hình thức: Tính toán tích lũy ngược\n` +
+                 `• Mục tiêu tích lũy: ${fmt(targetValue)} trong ${durationFmt(revMonths)}\n` +
+                 `• Hiệu suất giả định: ${revRate}%/năm\n` +
+                 `• Tổng vốn dự kiến: ${fmt(reverse.totalInvested)}\n` +
+                 `• Lãi kỳ vọng sinh ra: ${fmt(reverse.totalGain)} (+${reverse.gainPct.toFixed(1)}%)\n` +
+                 `• SỐ TIỀN CẦN TÍCH LŨY ĐỊNH KỲ: ${fmt(Math.round(reverse.reqMonthly))}/tháng`;
+        }
+
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+
+        showToast("✓ Đã sao chép báo cáo tài chính!");
+      };
+
+      const TabBtn = ({ id, label }) => (
+        <button 
+          onClick={() => setMode(id)} 
+          className={`flex-1 py-3 px-4 text-center rounded-xl transition-all font-semibold font-mono text-[11px] tracking-wider uppercase border ${
+            mode === id 
+              ? "bg-brand text-[#08080a] border-brand shadow-[0_4px_25px_rgba(200,255,0,0.25)]" 
+              : "bg-transparent text-zinc-500 border-transparent hover:text-zinc-300"
+          }`}
+        >
+          {label}
+        </button>
+      );
+
+      // Phân bổ phần trăm đóng góp vốn
+      const activeTotalValue = mode === "forward" ? forward.totalValue : targetValue;
+      const activeTotalInvested = mode === "forward" ? forward.totalInvested : reverse.totalInvested;
+      const activeTotalGain = mode === "forward" ? forward.totalGain : reverse.totalGain;
+      const investedPct = activeTotalValue > 0 ? (activeTotalInvested / activeTotalValue) * 100 : 0;
+      const gainPct = activeTotalValue > 0 ? (activeTotalGain / activeTotalValue) * 100 : 0;
+
+      // Chọn tập dữ liệu theo năm đang hoạt động
+      const activeYearlyData = mode === "forward" ? forward.yearlyData : reverse.yearlyData;
+
+      return (
+        <div className="flex flex-col items-center justify-center p-4 md:p-8 lg:p-12 font-sans relative min-h-screen">
+          
+          {/* Toast Notification */}
+          {toast.show && (
+            <div className="fixed top-6 right-6 z-50 bg-[#10160b] border border-emerald-950 text-[#c8ff00] text-xs font-mono font-semibold px-4 py-3 rounded-xl shadow-[0_10px_35px_rgba(0,0,0,0.8)] flex items-center gap-2 border-l-4 border-l-brand premium-glow">
+              <span>{toast.message}</span>
+            </div>
+          )}
+
+          <div className="w-full max-w-6xl">
+            {}
+            {/* Top Premium Header */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 pb-6 border-b border-zinc-900">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand animate-ping" />
+                  <span className="text-zinc-500 font-mono text-[9px] tracking-[0.3em] uppercase font-extrabold">
+                    Hệ Thống Trí Tuệ Tài Sản
+                  </span>
+                </div>
+                <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-white leading-tight">
+                  DCA <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand to-teal-400">Wealth Intelligence</span>
+                </h1>
+                <p className="text-zinc-500 text-xs mt-1 font-mono">Phiên bản chuyên nghiệp v3.0 Ultimate</p>
+              </div>
+
+              {/* Mode Selection Tabs */}
+              <div className="mt-6 md:mt-0 bg-[#0c0d10] border border-zinc-800/80 rounded-2xl p-1.5 flex gap-2 w-full md:w-[440px]">
+                <TabBtn id="forward" label="💰 Dự tính tích lũy" />
+                <TabBtn id="reverse" label="🎯 Tích lũy ngược" />
+              </div>
+            </div>
+
+            {/* Main Interactive Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              
+              {}
+              {/* Left Column: Premium Interactive Inputs */}
+              <div className="lg:col-span-5 bg-[#0a0b0e] border border-[#1b1c22] rounded-3xl p-6 lg:p-8 shadow-[0_15px_50px_rgba(0,0,0,0.6)]">
+                
+                {mode === "forward" ? (
+                  <>
+                    <PremiumSliderInput 
+                      label="Đóng góp hàng tháng" 
+                      value={monthly} 
+                      onChange={setMonthly}
+                      min={100000} 
+                      max={100000000} 
+                      step={100000} 
+                      valueSuffix="VND"
+                      isCurrency={true}
+                    />
+                    {/* Nút tác vụ nhanh */}
+                    <div className="flex gap-2 mb-8 -mt-3">
+                      {[1000000, 2000000, 5000000, 10000000].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => setMonthly(val)}
+                          className="bg-[#121318] hover:bg-brand hover:text-[#08080a] text-zinc-400 text-[10px] font-semibold px-2.5 py-1 rounded-md border border-zinc-800 transition-all font-mono"
+                        >
+                          {fmtShort(val)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <PremiumSliderInput 
+                      label="Lãi suất dự kiến" 
+                      value={rate} 
+                      onChange={setRate}
+                      min={1} 
+                      max={30} 
+                      step={0.5} 
+                      valueSuffix="%"
+                    />
+                    <div className="flex gap-2 mb-8 -mt-3">
+                      {[6, 8, 10, 12, 15].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => setRate(val)}
+                          className="bg-[#121318] hover:bg-brand hover:text-[#08080a] text-zinc-400 text-[10px] font-semibold px-2.5 py-1 rounded-md border border-zinc-800 transition-all font-mono"
+                        >
+                          {val}%
+                        </button>
+                      ))}
+                    </div>
+
+                    <PremiumSliderInput 
+                      label="Kỳ hạn tích lũy" 
+                      value={months} 
+                      onChange={setMonths}
+                      min={6} 
+                      max={360} 
+                      step={6} 
+                      valueSuffix="tháng"
+                    />
+                    <div className="flex gap-2 mb-6 -mt-3">
+                      {[36, 60, 120, 240, 360].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => setMonths(val)}
+                          className="bg-[#121318] hover:bg-brand hover:text-[#08080a] text-zinc-400 text-[10px] font-semibold px-2.5 py-1 rounded-md border border-zinc-800 transition-all font-mono"
+                        >
+                          {durationFmt(val)}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <PremiumSliderInput 
+                      label="Mục tiêu tích lũy" 
+                      value={targetValue} 
+                      onChange={setTargetValue}
+                      min={50000000} 
+                      max={50000000000} 
+                      step={50000000} 
+                      valueSuffix="VND"
+                      isCurrency={true}
+                    />
+                    <div className="flex gap-2 mb-8 -mt-3">
+                      {[500000000, 1000000000, 2000000000, 5000000000].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => setTargetValue(val)}
+                          className="bg-[#121318] hover:bg-brand hover:text-[#08080a] text-zinc-400 text-[10px] font-semibold px-2.5 py-1 rounded-md border border-zinc-800 transition-all font-mono"
+                        >
+                          {fmtShort(val)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <PremiumSliderInput 
+                      label="Lãi suất dự kiến" 
+                      value={revRate} 
+                      onChange={setRevRate}
+                      min={1} 
+                      max={30} 
+                      step={0.5} 
+                      valueSuffix="%"
+                    />
+                    <div className="flex gap-2 mb-8 -mt-3">
+                      {[6, 8, 10, 12, 15].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => setRevRate(val)}
+                          className="bg-[#121318] hover:bg-brand hover:text-[#08080a] text-zinc-400 text-[10px] font-semibold px-2.5 py-1 rounded-md border border-zinc-800 transition-all font-mono"
+                        >
+                          {val}%
+                        </button>
+                      ))}
+                    </div>
+
+                    <PremiumSliderInput 
+                      label="Kỳ hạn tích lũy" 
+                      value={revMonths} 
+                      onChange={setRevMonths}
+                      min={6} 
+                      max={360} 
+                      step={6} 
+                      valueSuffix="tháng"
+                    />
+                    <div className="flex gap-2 mb-6 -mt-3">
+                      {[36, 60, 120, 240, 360].map(val => (
+                        <button 
+                          key={val}
+                          onClick={() => setRevMonths(val)}
+                          className="bg-[#121318] hover:bg-brand hover:text-[#08080a] text-zinc-400 text-[10px] font-semibold px-2.5 py-1 rounded-md border border-zinc-800 transition-all font-mono"
+                        >
+                          {durationFmt(val)}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Sub-metrics highlights */}
+                <div className="grid grid-cols-2 gap-4 mt-8 pt-6 border-t border-zinc-800/60">
+                  <div className="bg-[#0e0f13] border border-[#1b1c22] rounded-2xl p-4">
+                    <span className="text-zinc-500 text-[9px] tracking-wider uppercase font-mono font-bold block mb-1">Hiệu suất tài khoản</span>
+                    <span className="text-white text-sm font-bold font-mono">{mode === "forward" ? `+${forward.gainPct.toFixed(1)}%` : `+${reverse.gainPct.toFixed(1)}%`}</span>
+                  </div>
+                  <div className="bg-[#0e0f13] border border-[#1b1c22] rounded-2xl p-4">
+                    <span className="text-zinc-500 text-[9px] tracking-wider uppercase font-mono font-bold block mb-1">Thời gian tích lũy</span>
+                    <span className="text-white text-sm font-bold font-mono">{mode === "forward" ? durationFmt(months) : durationFmt(revMonths)}</span>
+                  </div>
+                </div>
+
+              </div>
+
+              {}
+              {/* Right Column: Visualization Dashboards */}
+              <div className="lg:col-span-7 flex flex-col gap-6">
+                
+                {/* Visual Impact Box (Hero asset card) */}
+                <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0c1305] via-[#050507] to-[#050507] border border-brand/20 p-6 lg:p-8 shadow-[0_15px_40px_rgba(0,0,0,0.5)] premium-glow">
+                  <div className="absolute top-0 right-0 w-44 h-44 bg-brand/10 rounded-full filter blur-[80px]" />
+                  
+                  <div className="flex justify-between items-start mb-3">
+                    <span className="text-zinc-500 text-[10px] tracking-widest uppercase font-mono font-bold">
+                      {mode === "forward" ? "Tổng tài sản tương lai mong đợi" : "Khoản tiết kiệm định kỳ cần có"}
+                    </span>
+                    <button 
+                      onClick={handleCopyReport}
+                      className="bg-[#121318]/90 hover:bg-[#1c1d24] text-zinc-300 hover:text-white px-3 py-1.5 rounded-xl border border-zinc-800/80 text-[10px] font-mono transition-all flex items-center gap-1.5 z-10 relative"
+                    >
+                      <span>🗎 Copy Báo Cáo</span>
+                    </button>
+                  </div>
+
+                  <div className="text-3xl lg:text-4xl font-black font-mono tracking-tight text-brand leading-none">
+                    {mode === "forward" ? fmt(forward.totalValue) : fmt(Math.round(reverse.reqMonthly))}
+                  </div>
+
+                  {mode === "reverse" && (
+                    <div className="text-zinc-500 text-[10px] mt-2 font-mono">
+                      Để đạt mục tiêu tích lũy <span className="text-brand font-bold">{fmtShort(targetValue)}₫</span> sau khoảng {durationFmt(revMonths)}
+                    </div>
+                  )}
+
+                  {/* Compound Interest Power bar */}
+                  <div className="mt-8 pt-6 border-t border-zinc-800/50">
+                    <div className="flex justify-between text-[10px] font-mono text-zinc-500 mb-2 font-semibold">
+                      <span>Sức lao động (Vốn: {fmtShort(activeTotalInvested)})</span>
+                      <span>Lãi kép sinh thêm ({fmtShort(activeTotalGain)})</span>
+                    </div>
+                    <div className="h-2 w-full bg-zinc-900 rounded-full overflow-hidden flex">
+                      <div style={{ width: `${investedPct}%` }} className="bg-zinc-600 transition-all duration-500" />
+                      <div style={{ width: `${gainPct}%` }} className="bg-brand transition-all duration-500" />
+                    </div>
+                    <div className="flex justify-between mt-2 text-[10px] font-mono text-zinc-500">
+                      <span>{investedPct.toFixed(0)}% Vốn nộp</span>
+                      <span className="text-brand">{gainPct.toFixed(0)}% Lãi kép đóng góp</span>
+                    </div>
+                  </div>
+                </div>
+
+                {}
+                {/* Wealth Dashboard (Chart or Table) */}
+                <div className="bg-[#0a0b0e] border border-[#1b1c22] rounded-3xl p-6 shadow-[0_15px_40px_rgba(0,0,0,0.5)]">
+                  
+                  {/* Tab Selector inside Container */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-zinc-800/60">
+                    <span className="text-zinc-500 text-[10px] tracking-widest uppercase font-mono font-semibold">
+                      Phân tích kết quả chi tiết
+                    </span>
+                    <div className="bg-[#121318] p-1 rounded-xl flex gap-1 border border-zinc-800/80">
+                      <button 
+                        onClick={() => setTabView("chart")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold font-mono transition-all ${
+                          tabView === "chart" 
+                            ? "bg-zinc-800 text-brand" 
+                            : "text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        📊 Biểu đồ
+                      </button>
+                      <button 
+                        onClick={() => setTabView("table")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold font-mono transition-all ${
+                          tabView === "table" 
+                            ? "bg-zinc-800 text-brand" 
+                            : "text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        📋 Bảng chi tiết
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Render Visual Area Chart */}
+                  {tabView === "chart" && (
+                    <div>
+                      <div className="flex justify-end gap-4 mb-4">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-zinc-600" />
+                          <span className="text-zinc-500 font-mono text-[10px]">Vốn đã nộp</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-brand" />
+                          <span className="text-brand font-mono text-[10px]">Lợi nhuận lũy kế</span>
+                        </div>
+                      </div>
+
+                      <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={mode === "forward" ? forward.data : reverse.data} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="gInvest" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#4b5563" stopOpacity={0.2} />
+                                <stop offset="95%" stopColor="#4b5563" stopOpacity={0.0} />
+                              </linearGradient>
+                              <linearGradient id="gProfit" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#c8ff00" stopOpacity={0.35} />
+                                <stop offset="95%" stopColor="#c8ff00" stopOpacity={0.0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#121318" vertical={false} />
+                            <XAxis 
+                              dataKey="month" 
+                              tick={{ fill: "#3f424e", fontSize: 9, fontFamily: "'JetBrains Mono'" }} 
+                              tickLine={false} 
+                              axisLine={false} 
+                            />
+                            <YAxis 
+                              tickFormatter={v => fmtShort(v)} 
+                              tick={{ fill: "#3f424e", fontSize: 9, fontFamily: "'JetBrains Mono'" }} 
+                              tickLine={false} 
+                              axisLine={false} 
+                              width={55} 
+                            />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Area 
+                              type="monotone" 
+                              dataKey="invested" 
+                              stackId="1" 
+                              stroke="#4b5563" 
+                              strokeWidth={1} 
+                              fill="url(#gInvest)" 
+                              name="Đã đầu tư" 
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="gain" 
+                              stackId="1" 
+                              stroke="#c8ff00" 
+                              strokeWidth={1.5} 
+                              fill="url(#gProfit)" 
+                              name="Lãi kép" 
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+
+                  {}
+                  {/* Render Detailed Yearly Table */}
+                  {tabView === "table" && (
+                    <div className="overflow-x-auto max-h-[300px] border border-zinc-900 rounded-2xl">
+                      <table className="w-full text-left font-mono text-xs">
+                        <thead className="bg-[#0e0f13] text-zinc-500 sticky top-0 border-b border-zinc-800">
+                          <tr>
+                            <th className="p-3">Năm</th>
+                            <th className="p-3">Tháng</th>
+                            <th className="p-3 text-right">Vốn đã nộp</th>
+                            <th className="p-3 text-right">Lãi lũy kế</th>
+                            <th className="p-3 text-right">Tổng tài sản</th>
+                            <th className="p-3 text-right text-brand">Tăng trưởng</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/40 text-zinc-300">
+                          {activeYearlyData.map((row, index) => (
+                            <tr key={index} className="hover:bg-[#121318]/50 transition-colors">
+                              <td className="p-3 font-bold text-white">Năm {row.year}</td>
+                              <td className="p-3 text-zinc-500">th. {row.month}</td>
+                              <td className="p-3 text-right">{fmt(row.invested)}</td>
+                              <td className="p-3 text-right text-[#4ade80] font-medium">+{fmt(row.gain)}</td>
+                              <td className="p-3 text-right font-bold text-white">{fmt(row.total)}</td>
+                              <td className="p-3 text-right text-brand font-bold">+{row.percentage.toFixed(1)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                </div>
+
+              </div>
+            </div>
+
+            {}
+            {/* Premium Disclaimers */}
+            <div className="mt-12 text-center text-zinc-600 hover:text-zinc-500 transition-colors text-[10px] font-mono leading-relaxed max-w-2xl mx-auto border-t border-zinc-950 pt-8">
+              * Bản báo cáo giả định tỷ suất sinh lời được tái đầu tư liên tục hàng tháng cố định và không thay đổi. Biến động thị trường thực tế có thể ảnh hưởng trực tiếp đến kết quả đầu tư. Hãy cân nhắc chiến lược quản trị rủi ro phù hợp.
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // React Root Initialization
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DCACalculator />);
+  </script>
+</body>
+</html>
